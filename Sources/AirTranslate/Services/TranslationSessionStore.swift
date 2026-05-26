@@ -295,7 +295,7 @@ final class TranslationSessionStore {
     }
 
     var isTranscribeOnlyMode: Bool {
-        selectedModel == .appleSpeechOnly && !isUsingOpenAIRealtime
+        selectedModel == .appleSpeechOnly && !openAITranslationModel.isEnabled
     }
 
     var liveOutputMode: LiveOutputMode {
@@ -599,22 +599,28 @@ final class TranslationSessionStore {
 
     func useAppleDefaultMode() {
         clearTranscribeOnlyNotice(resetActivation: true)
-        selectedModel = .appleSystem
         openAITranscriptionModel = .off
         openAITranslationModel = .off
+        if selectedModel != .appleSpeechOnly {
+            selectedModel = .appleSystem
+        }
     }
 
     func useGPTRealtimeMode() {
         clearTranscribeOnlyNotice(resetActivation: true)
-        selectedModel = .appleSystem
         isTranscriptLintEnabled = false
         if !openAITranscriptionModel.isEnabled {
             openAITranscriptionModel = .gptRealtimeWhisper
         }
-        if !openAITranslationModel.isEnabled {
-            openAITranslationModel = .gptRealtimeTranslate
+        if selectedModel == .appleSpeechOnly {
+            openAITranslationModel = .off
+        } else {
+            selectedModel = .appleSystem
+            if !openAITranslationModel.isEnabled {
+                openAITranslationModel = .gptRealtimeTranslate
+            }
+            usePreferredLanguageForOpenAIOutput()
         }
-        usePreferredLanguageForOpenAIOutput()
     }
 
     func useLiveOutputMode(_ mode: LiveOutputMode) {
@@ -639,7 +645,6 @@ final class TranslationSessionStore {
             floatingCaptionDisplayModeBeforeTranscribeOnly = floatingCaptionDisplayMode
         }
         floatingCaptionDisplayMode = .original
-        openAITranscriptionModel = .off
         openAITranslationModel = .off
         isDubbingEnabled = false
         selectedModel = .appleSpeechOnly
