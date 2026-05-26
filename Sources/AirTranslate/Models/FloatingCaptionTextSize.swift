@@ -40,13 +40,13 @@ enum FloatingCaptionTextSize: String, CaseIterable, Identifiable {
     var floatingLineWidthUnits: Double {
         switch self {
         case .small:
-            39
+            58
         case .medium:
-            32
+            48
         case .large:
-            25
+            38
         case .extraLarge:
-            20
+            30
         }
     }
 

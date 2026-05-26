@@ -84,6 +84,7 @@ final class TranslationSessionStore {
     private static let minimumFloatingCaptionDwell = 1.4
     private static let maximumFloatingCaptionDwell = 3.6
     private static let transcribeOnlyNoticeDisplayDuration: TimeInterval = 10
+    private static let floatingCaptionIdleDismissInterval: TimeInterval = 10
     private static let appleAutoDetectionMinimumConfidence = 0.35
     private static let appleAutoDetectionLanguageSwitchMinimumConfidence = 0.72
     private static let isAppleSourceAutoDetectionTemporarilyDisabled = true
@@ -253,6 +254,7 @@ final class TranslationSessionStore {
     private var floatingQueuedTranslationText = ""
     private var floatingQueuedTranslationSourceText = ""
     private var floatingPresentationTask: Task<Void, Never>?
+    private var floatingIdleDismissTask: Task<Void, Never>?
     private var sourceLanguageByLineID: [UUID: LanguageOption] = [:]
     private var pendingTranslationSourceText = ""
     private var translatedSegmentsBySource: [String: String] = [:]
@@ -977,6 +979,8 @@ final class TranslationSessionStore {
         pendingParagraphBreakBeforePartial = false
         floatingPresentationTask?.cancel()
         floatingPresentationTask = nil
+        floatingIdleDismissTask?.cancel()
+        floatingIdleDismissTask = nil
         if clearsVisibleLines {
             sourceLanguageByLineID.removeAll()
             floatingCommittedSourceText = ""
@@ -1978,9 +1982,9 @@ final class TranslationSessionStore {
             return
         }
 
-        let normalizedCandidate = normalizedTranscriptForComparison(candidate)
-        let normalizedPresented = normalizedTranscriptForComparison(floatingPresentedSourceText)
-        guard normalizedCandidate != normalizedPresented else { return }
+        guard floatingCaptionTailChanged(candidate: candidate, presented: floatingPresentedSourceText) else {
+            return
+        }
 
         let now = Date()
         if canUpdateFloatingPresentationImmediately(to: candidate, now: now)
@@ -1993,16 +1997,25 @@ final class TranslationSessionStore {
         scheduleFloatingPresentationAdvance()
     }
 
+    private static let floatingCaptionComparisonTailLength = 600
+
+    private func floatingCaptionTailChanged(candidate: String, presented: String) -> Bool {
+        let tailLength = Self.floatingCaptionComparisonTailLength
+        let candidateTail = String(candidate.suffix(tailLength))
+        let presentedTail = String(presented.suffix(tailLength))
+        return candidateTail != presentedTail
+    }
+
     private func canUpdateFloatingPresentationImmediately(to candidate: String, now: Date) -> Bool {
         let elapsed = now.timeIntervalSince(floatingPresentedAt)
         if elapsed <= Self.floatingCaptionEarlyRevisionWindow {
             return true
         }
 
-        let normalizedPresented = normalizedTranscriptForComparison(floatingPresentedSourceText)
-        let normalizedCandidate = normalizedTranscriptForComparison(candidate)
-        return normalizedPresented.count < Self.floatingCaptionImmediateExtensionCharacterLimit
-            && isWholeTextPrefix(normalizedPresented, of: normalizedCandidate)
+        let presentedTail = String(floatingPresentedSourceText.suffix(Self.floatingCaptionComparisonTailLength))
+        let candidateTail = String(candidate.suffix(Self.floatingCaptionComparisonTailLength))
+        return presentedTail.count < Self.floatingCaptionImmediateExtensionCharacterLimit
+            && isWholeTextPrefix(presentedTail, of: candidateTail)
     }
 
     private func canAdvanceFloatingPresentation(now: Date = Date()) -> Bool {
@@ -2011,8 +2024,9 @@ final class TranslationSessionStore {
     }
 
     private func floatingCaptionDwellDuration() -> TimeInterval {
-        let sourceLength = normalizedTranscriptForComparison(floatingPresentedSourceText).count
-        let translationLength = normalizedTranscriptForComparison(floatingDisplayTranslationText).count
+        let tailLength = Self.floatingCaptionComparisonTailLength
+        let sourceLength = floatingPresentedSourceText.suffix(tailLength).count
+        let translationLength = floatingDisplayTranslationText.suffix(tailLength).count
         let readableLength = max(sourceLength, translationLength)
         let dwell = 1.1 + Double(readableLength) / 32.0
         return min(
@@ -2034,6 +2048,24 @@ final class TranslationSessionStore {
             floatingDisplayTranslationSourceText = ""
         }
         promoteQueuedFloatingTranslationIfPossible()
+        scheduleFloatingIdleDismiss()
+    }
+
+    private func scheduleFloatingIdleDismiss() {
+        floatingIdleDismissTask?.cancel()
+        floatingIdleDismissTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(Self.floatingCaptionIdleDismissInterval))
+            } catch {
+                return
+            }
+            floatingPresentedSourceText = ""
+            floatingQueuedSourceText = ""
+            floatingDisplayTranslationText = ""
+            floatingDisplayTranslationSourceText = ""
+            floatingQueuedTranslationText = ""
+            floatingQueuedTranslationSourceText = ""
+        }
     }
 
     private func scheduleFloatingPresentationAdvance() {
@@ -2045,7 +2077,11 @@ final class TranslationSessionStore {
         )
         let delayMilliseconds = max(50, Int(remaining * 1_000))
         floatingPresentationTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(delayMilliseconds))
+            do {
+                try await Task.sleep(for: .milliseconds(delayMilliseconds))
+            } catch {
+                return
+            }
             promoteQueuedFloatingPresentationIfReady()
         }
     }

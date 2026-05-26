@@ -35,14 +35,14 @@ struct FloatingCaptionWindowView: View {
             }
         case .originalAndTranslation:
             if !sourceText.isEmpty {
-                subtitleText(sourceText, font: session.floatingCaptionTextSize.secondaryFont)
-                    .opacity(0.82)
+                subtitleText(sourceText, font: session.floatingCaptionTextSize.primaryFont)
                 if !translationText.isEmpty {
-                    subtitleText(translationText, font: session.floatingCaptionTextSize.primaryFont)
+                    subtitleText(translationText, font: session.floatingCaptionTextSize.secondaryFont)
+                        .opacity(0.82)
                 } else if !noticeText.isEmpty {
                     noticeSubtitleText(noticeText)
                 } else {
-                    subtitleText(" ", font: session.floatingCaptionTextSize.primaryFont)
+                    subtitleText(" ", font: session.floatingCaptionTextSize.secondaryFont)
                         .opacity(0)
                 }
             }
